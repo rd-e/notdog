@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.text.TextUtils;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -43,9 +44,9 @@ import static com.unoemon.notdog.util.AwsConst.IDENTITY_POOL_ID;
 public class MainActivity extends AppCompatActivity {
 
     private static final String KEY_LABELS = "key_labels";
-    private static final String KEY_ORIG_BITMAP = "key_orig_bitmap";
+    private static final String KEY_URI_STRING = "key_uri_string";
 
-    private Bitmap origBitmap;
+    private String uriString;
     private List<Label> labels;
 
     @BindView(R.id.imageview_contents)
@@ -77,8 +78,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        if (origBitmap != null) {
-            outState.putParcelable(KEY_ORIG_BITMAP, origBitmap);
+        if (!TextUtils.isEmpty(uriString)) {
+            outState.putString(KEY_URI_STRING, uriString);
         }
         if (labels != null) {
             outState.putSerializable(KEY_LABELS, (Serializable) labels);
@@ -96,9 +97,15 @@ public class MainActivity extends AppCompatActivity {
         loadingView = new CatLoadingView();
 
         if (savedInstanceState != null) {
-            if (savedInstanceState.containsKey(KEY_ORIG_BITMAP)) {
-                origBitmap = savedInstanceState.getParcelable(KEY_ORIG_BITMAP);
-                updateBackground(origBitmap);
+            if (savedInstanceState.containsKey(KEY_URI_STRING)) {
+                uriString = savedInstanceState.getString(KEY_URI_STRING);
+                if (uriString != null) {
+                    Uri uri = Uri.parse(uriString);
+                    Disposable dispose = RxImageConverters.uriToBitmap(MainActivity.this, uri)
+                            .onErrorResumeNext(Observable.empty())
+                            .subscribe(this::updateBackground);
+                    DisposableManager.add(dispose);
+                }
             }
             if (savedInstanceState.containsKey(KEY_LABELS)) {
                 labels = (List<Label>) savedInstanceState.getSerializable(KEY_LABELS);
@@ -130,7 +137,10 @@ public class MainActivity extends AppCompatActivity {
         listsText.setText("");
 
         Disposable disposable = RxImagePicker.with(MainActivity.this).requestImage(sources)
-                .doOnNext(uri -> loadingView.show(getSupportFragmentManager(), ""))
+                .doOnNext(uri -> {
+                    uriString = uri.toString();
+                    loadingView.show(getSupportFragmentManager(), "");
+                })
                 .subscribeOn(Schedulers.io())
                 .flatMap(uri -> RxImageConverters.uriToBitmap(MainActivity.this, uri))
                 .doOnNext(this::updateBackground)
@@ -184,7 +194,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateBackground(Bitmap bitmap) {
-        origBitmap = bitmap;
         if (contentsImage != null) {
             contentsImage.setImageBitmap(bitmap);
         }
